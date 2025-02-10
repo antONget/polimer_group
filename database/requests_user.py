@@ -239,3 +239,15 @@ def update_phone_number(new_phone_number,user_id):
     conn.commit()
     cur.close()
     conn.close()
+
+def get_photo_id_by_name(photo_name):
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM image_id WHERE name = ?',(photo_name,))
+    data = cur.fetchall()
+    cur.close()
+    conn.close()
+    if data == []:
+        return False
+    else:
+        return data[0][1]

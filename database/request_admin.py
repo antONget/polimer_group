@@ -3,64 +3,29 @@ from openpyxl import load_workbook
 import os
 
 def create_tables():
-    conn = sqlite3.connect('database/GROUND_TANKS.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute(
         f'CREATE TABLE IF NOT EXISTS ground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/UNDERGROUND_TANKS.sql')
-    cur = conn.cursor()
     cur.execute(
         f'CREATE TABLE IF NOT EXISTS underground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/FOR_COUNTRY.sql')
-    cur = conn.cursor()
     cur.execute(
         f'CREATE TABLE IF NOT EXISTS for_village (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/ACCESSORIES.sql')
-    cur = conn.cursor()
     cur.execute(
         'CREATE TABLE IF NOT EXISTS accessories (name_razdel text,name text,art text,cost_mitichi text,cost_zuevo text,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/FOR_TRASH.sql')
-    cur = conn.cursor()
     cur.execute(
         'CREATE TABLE IF NOT EXISTS for_trash (name_razdel text,name text,art text,harakteristik text,weight text,cost_mitichi int,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/BOXES.sql')
-    cur = conn.cursor()
     cur.execute(
         'CREATE TABLE IF NOT EXISTS boxes (name_razdel text,name text,art text,volume int,size text,weight text,cost_mitichi int,cost_zuevo int,image_name text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/AZS.sql')
-    cur = conn.cursor()
     cur.execute(
         'CREATE TABLE IF NOT EXISTS azs (name_razdel text,name text,volume int,size text,art_piusi text,cost_piusi text,art_belak text,cost_belak text,art_china_premium text,cost_china_premium text,art_china text,cost_china text)')
     conn.commit()
-    cur.close()
-    conn.close()
-
-    conn = sqlite3.connect('database/AZS_PARTS.sql')
-    cur = conn.cursor()
     cur.execute(f'CREATE TABLE IF NOT EXISTS azs_parts (name_razdel text,name text,art text,cost int)')
     conn.commit()
     cur.close()
@@ -74,7 +39,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/GROUND_TANKS.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM ground_tanks')
 
@@ -101,7 +66,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/UNDERGROUND_TANKS.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM underground_tanks')
 
@@ -129,7 +94,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/FOR_COUNTRY.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM for_village')
 
@@ -156,7 +121,7 @@ def process_excel_file(file_path):
 
     name_razdel = 'Комлектующие'
 
-    conn = sqlite3.connect('database/ACCESSORIES.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM accessories')
 
@@ -181,7 +146,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/FOR_TRASH.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM for_trash')
 
@@ -207,7 +172,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/BOXES.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM boxes')
 
@@ -235,7 +200,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/AZS.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM azs')
 
@@ -268,7 +233,7 @@ def process_excel_file(file_path):
 
     name_razdel = None
 
-    conn = sqlite3.connect('database/AZS_PARTS.sql')
+    conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute('DELETE FROM azs_parts')
 
@@ -288,3 +253,27 @@ def process_excel_file(file_path):
     conn.close()
 
 
+def get_photo_to_sqlite(photo_name,photo_id):
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    cur.execute('INSERT INTO image_id (name,id) VALUES (?,?)',(photo_name,photo_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_all_photo_name():
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    cur.execute('SELECT name FROM image_id')
+    data = cur.fetchall()
+    cur.close()
+    conn.close()
+    return data
+
+def rechange_photo_id(photo_name,photo_id):
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    cur.execute(f'UPDATE image_id SET id = ? WHERE name = ?',(photo_name,photo_id))
+    conn.commit()
+    cur.close()
+    conn.close()

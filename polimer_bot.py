@@ -1,8 +1,8 @@
 import logging
-from aiogram import Bot, types, Dispatcher, F
-from aiogram.filters import Command, StateFilter, or_f
+from aiogram import Bot,types,Dispatcher,F,Router
+from aiogram.filters import Command,StateFilter,or_f
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import default_state, State, StatesGroup
+from aiogram.fsm.state import  default_state,State,StatesGroup
 from aiogram.types import FSInputFile
 
 import time
@@ -10,9 +10,9 @@ import sqlite3
 from collections import OrderedDict
 import os
 
-from config_data.config import Config, load_config
-from keyboards import admin_keyboards, user_keyboards
-from database import requests_user, request_admin
+from config_data.config import Config,load_config
+from keyboards import admin_keyboards,user_keyboards
+from database import requests_user,request_admin
 
 config:Config = load_config()
 
@@ -20,35 +20,41 @@ admin_id = config.tg_bot.admin_ids.split(',')
 manager_id = config.tg_bot.manager_ids.split(',')
 
 photo_name = ''
-my_dict = {"Ем_наз": ['GROUND_TANKS.sql', 'ground_tanks'],
-           "Ем_подз": ['UNDERGROUND_TANKS.sql', 'underground_tanks'],
-           "Дача": ['FOR_COUNTRY.sql', 'for_village'],
-           "Компл": ['ACCESSORIES.sql', 'accessories'],
-           "Мусор": ['FOR_TRASH.sql', 'for_trash'],
-           "Короб": ['BOXES.sql', 'Boxes'],
-           "Азс": ['AZS.sql', 'azs'],
-           "Зап_азс": ['AZS_PARTS.sql', 'azs_parts']
+my_dict = {"Ем_наз":['TOVARI.sql','ground_tanks'],
+           "Ем_подз":['TOVARI.sql','underground_tanks'],
+           "Дача":['TOVARI.sql','for_village'],
+           "Компл":['TOVARI.sql','accessories'],
+           "Мусор":['TOVARI.sql','for_trash'],
+           "Короб":['TOVARI.sql','Boxes'],
+           "Азс":['TOVARI.sql','azs'],
+           "Зап_азс":['TOVARI.sql','azs_parts']
            }
 
 logging.basicConfig(level=logging.INFO)
-
 
 class FSMFillForm(StatesGroup):
     fill_fio = State()
     fill_phone_number = State()
     fill_city = State()
-    fill_photo_name = State()
     change_fio = State()
     change_city = State()
     change_phone_number = State()
 
 
+    change_photo_admin_name = State()
+    change_photo_admin_photo = State()
+    add_photo_admin_name = State()
+    add_photo_admin_photo = State()
+
+
+
+router = Router()
+
 bot = Bot(token=config.tg_bot.token)
 dp = Dispatcher(bot=bot)
 
-
-@dp.message(Command('start'), StateFilter(default_state))
-async def start(message: types.Message, state: FSMContext):
+@dp.message(Command('start'),StateFilter(default_state))
+async def start (message: types.Message,state:FSMContext):
     user_id = message.from_user.id
     logging.info('start')
 
@@ -70,13 +76,12 @@ async def start(message: types.Message, state: FSMContext):
         else:
 
             await message.answer('Доброго времени суток, рады вас видеть в нашем магазине. '
-                                 'Компания «Полимер-Групп» производит и реализует емкости для воды пластиковые, '
-                                 'которые, как показывает практика, пользуются большой популярностью благодаря очень '
-                                 'высокому качеству и доступной стоимости. Тара из пластика широко'
-                                 ' используется для перевозки'
-                                 ' и хранения питьевой и технической воды во многих отраслях.')
+                                         'Компания «Полимер-Групп» производит и реализует емкости для воды пластиковые, '
+                                         'которые, как показывает практика, пользуются большой популярностью благодаря очень '
+                                         'высокому качеству и доступной стоимости. Тара из пластика широко используется для перевозки'
+                                         ' и хранения питьевой и технической воды во многих отраслях.')
             time.sleep(4)
-            await message.answer('Скажите как мы можем к вам обращаться?\nВведите ваше ФИО в таком формате: "Фамилия,Имя,Отчество"')
+            await  message.answer('Скажите как мы можем к вам обращаться?\nВведите ваше ФИО в таком формате: "Фамилия,Имя,Отчество"')
             await state.set_state(FSMFillForm.fill_fio)
 
 #ПОЛУЧЕНИЕ ДАННЫХ ОТ ПОЛЬЗОВАТЕЛЯ
@@ -142,14 +147,17 @@ async def main_buttons_admin(message: types.Message):
     markup = admin_keyboards.create_keyboard_admin()
     await message.answer('Вы являетесь администратором,выберите действие',reply_markup=markup)
 
-@dp.message(or_f((F.text == 'Загрузить файл'),(F.text == 'Загрузить фотографию')))
+@dp.message(or_f((F.text == 'Загрузить файл'),(F.text == 'Загрузить фотографию'),(F.text == 'Обновить фотографию')))
 async def main_admin_photo(message: types.Message,state:FSMContext):
     logging.info('main_admin_photo')
     if message.text == 'Загрузить фотографию':
-        await message.answer('Введите название фотографии')
-        await state.set_state(FSMFillForm.fill_photo_name)
+        await message.answer('Введите название фотографии, в соотвествии с данными из таблицы')
+        await state.set_state(FSMFillForm.add_photo_admin_name)
     if message.text == 'Загрузить файл':
         await message.answer('Отправьте файл')
+    if message.text == 'Обновить фотографию':
+        await message.answer('Введите название фото, которое хотите обновить (Вводить в соответствии с данными из таблицы')
+        await state.set_state(FSMFillForm.change_photo_admin_name)
 
 
 @dp.message(F.document)
@@ -170,26 +178,48 @@ async def get_file(message: types.Message):
 
     await message.answer('Файл успешно загружен')
 
+@dp.message(StateFilter(FSMFillForm.change_photo_admin_name))
+async def re_get_photo_name(message: types.Message,state:FSMContext):
+    logging.info('re_get_photo_name')
+    photo_name = message.text
+    names = request_admin.get_all_photo_name()
+    for name in names:
+        if str(name[0]) == str(photo_name):
+            await state.set_state(FSMFillForm.change_photo_admin_photo)
+            break
+    else:
+        await message.answer('Совпадений не найдено,нажмите на кнопку и попробуйте еще раз')
+        await state.clear()
 
-@dp.message(StateFilter(FSMFillForm.fill_photo_name))
+@dp.message(StateFilter(FSMFillForm.change_photo_admin_photo))
+async def re_get_photo(message: types.Message,state:FSMContext):
+    logging.info('re_get_photo')
+    photo_id = message.photo[-1].file_id
+
+    request_admin.rechange_photo_id(photo_name,photo_id)
+
+    await message.answer('Фото обновлено!')
+    await state.clear()
+
+
+@dp.message(StateFilter(FSMFillForm.add_photo_admin_name))
 async def get_photo_name(message: types.Message,state:FSMContext):
     logging.info('get_photo_name')
     global photo_name
     photo_name = message.text
     await message.answer('Отправьте фотографию')
-    await state.clear()
+    await state.set_state(FSMFillForm.add_photo_admin_photo)
 
-
-@dp.message(F.photo)
-async def get_photo(message: types.Message):
+@dp.message(StateFilter(FSMFillForm.add_photo_admin_photo))
+async def get_photo(message: types.Message,state:FSMContext):
     logging.info('get_photo')
     file_id = message.photo[-1].file_id
+    print(file_id)
 
-    file = await bot.get_file(file_id)
-
-    await bot.download_file(file.file_path, f'img/{photo_name}.jpg')
+    request_admin.get_photo_to_sqlite(f'{photo_name}.jpg',file_id)
 
     await message.answer('Фото сохранено')
+    await state.clear()
 
 @dp.message(F.text == 'Назад')
 async def main_buttons_user (message: types.Message):
@@ -250,7 +280,8 @@ async def main_user(message: types.Message):
 
         zakaz_id = requests_user.indert_zakaz_into_table(id,Zakaz)
 
-        await message.answer(f'Клиент: tg://user?id={id} \nНомер заказа: {zakaz_id} \n\n{Zakaz}')
+        for manager in manager_id:
+            await bot.send_message(manager,f'Клиент: tg://user?id={id} \nНомер заказа: {zakaz_id} \n\n{Zakaz}')
 
         requests_user.clear_coezina(id)
 
@@ -363,44 +394,36 @@ async def buttons_razdel(callback: types.CallbackQuery):
     user_id = callback.from_user.id
 
 
-    SQL_name = ''
+    SQL_name = 'TOVARI.sql'
     table_name = ''
     description = ''
 
     if callback.data == 'Раздел Емкости наземные':
-        SQL_name = 'GROUND_TANKS.sql'
         table_name = 'ground_tanks'
         description = 'Ем_наз'
 
     if callback.data == 'Раздел Емкости подземные':
-        SQL_name = 'UNDERGROUND_TANKS.sql'
         table_name = 'underground_tanks'
         description = 'Ем_подз'
 
     if callback.data == 'Раздел Для дачи':
-        SQL_name = 'FOR_COUNTRY.sql'
         table_name = 'for_village'
         description = 'Дача'
 
     if callback.data == 'Раздел Комплектующие':
-        SQL_name = 'ACCESSORIES.sql'
         table_name = 'accessories'
         description = 'Компл'
 
     if callback.data == 'Раздел Мусоросбросы':
-        SQL_name = 'FOR_TRASH.sql'
         table_name = 'for_trash'
         description = 'Мусор'
     if callback.data == 'Раздел ящики':
-        SQL_name = 'BOXES.sql'
         table_name = 'Boxes'
         description = 'Короб'
     if callback.data == 'Раздел АЗС':
-        SQL_name = 'AZS.sql'
         table_name = 'azs'
         description = 'Азс'
     if callback.data == 'Раздел Запчасти АЗС':
-        SQL_name = 'AZS_PARTS.sql'
         table_name = 'azs_parts'
         description = 'Зап_азс'
 
@@ -667,7 +690,14 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost_mitichi = elem[6]
                 cost_zuevo = elem[7]
                 print(elem[8])
-                photo = FSInputFile(f'img/{elem[8]}')
+
+                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
+
+                if result == False:
+                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
+                else:
+                    photo = result
+
                 markup = user_keyboards.tanks_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
                 await bot.send_photo(chat_id=callback.from_user.id,photo=photo,caption=f'Название: {name} \n\n'
@@ -693,7 +723,14 @@ async def choice_tovar(callback: types.CallbackQuery):
                 weight = elem[4]
                 cost_mitichi = elem[5]
                 cost_zuevo = elem[6]
-                photo = FSInputFile(f'img/{elem[8]}')
+
+                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
+
+                if result == False:
+                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
+                else:
+                    photo = result
+
                 markup = user_keyboards.dacha_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
                 await bot.send_photo(chat_id=callback.from_user.id,photo=photo,caption=f'Название: {name} \n\n'
@@ -716,7 +753,15 @@ async def choice_tovar(callback: types.CallbackQuery):
                 art = elem[2]
                 cost_mitichi = elem[3]
                 cost_zuevo = elem[4]
-                photo = FSInputFile(f'img/{elem[5]}')
+
+                result = requests_user.get_photo_id_by_name(f'{elem[5]}')
+
+                if result == False:
+                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
+                else:
+                    photo = result
+
+
                 markup = user_keyboards.kompl_skald_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
                 await bot.send_photo(chat_id=callback.from_user.id,photo=photo,caption=f'Название: {name} \n\n'
@@ -738,7 +783,14 @@ async def choice_tovar(callback: types.CallbackQuery):
                 haract = elem[3]
                 weight = elem[4]
                 cost_mitichi = elem[5]
-                photo = FSInputFile(f'img/{elem[6]}')
+
+                result = requests_user.get_photo_id_by_name(f'{elem[6]}')
+
+                if result == False:
+                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
+                else:
+                    photo = result
+
                 markup = user_keyboards.corzina_musor_button()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
                 await bot.send_photo(chat_id=callback.from_user.id,photo=photo,caption=f'Название: {name} \n\n'
@@ -762,7 +814,14 @@ async def choice_tovar(callback: types.CallbackQuery):
                 weight = elem[5]
                 cost_mitichi = elem[6]
                 cost_zuevo = elem[7]
-                photo = FSInputFile(f'img/{elem[8]}')
+
+                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
+
+                if result == False:
+                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
+                else:
+                    photo = result
+
                 markup = user_keyboards.boxes_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
                 await bot.send_photo(chat_id=callback.from_user.id,photo=photo,caption=f'Название: {name} \n\n'
@@ -796,6 +855,8 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost_china = elem[11]
                 markup = user_keyboards.AZS_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
+
+
                 await callback.answer(f'Название: {name} \n\n'
                                                                 f'Обьем: {obiem} Л \n\n'
                                                                 f'Размер: {size} \n\n'
