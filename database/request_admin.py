@@ -1,32 +1,35 @@
 import sqlite3
 from openpyxl import load_workbook
 import os
+import time
+
+from aiogram.types import FSInputFile
 
 def create_tables():
     conn = sqlite3.connect('database/TOVARI.sql')
     cur = conn.cursor()
     cur.execute(
-        f'CREATE TABLE IF NOT EXISTS ground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
+        f'CREATE TABLE IF NOT EXISTS ground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        f'CREATE TABLE IF NOT EXISTS underground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
+        f'CREATE TABLE IF NOT EXISTS underground_tanks (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        f'CREATE TABLE IF NOT EXISTS for_village (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text)')
+        f'CREATE TABLE IF NOT EXISTS for_village (name_razdel text,name text,art text,size text,weight text,volume int,cost_mitichi int,cost_zuevo int,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        'CREATE TABLE IF NOT EXISTS accessories (name_razdel text,name text,art text,cost_mitichi text,cost_zuevo text,image_name text)')
+        'CREATE TABLE IF NOT EXISTS accessories (name_razdel text,name text,art text,cost_mitichi text,cost_zuevo text,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        'CREATE TABLE IF NOT EXISTS for_trash (name_razdel text,name text,art text,harakteristik text,weight text,cost_mitichi int,image_name text)')
+        'CREATE TABLE IF NOT EXISTS for_trash (name_razdel text,name text,art text,harakteristik text,weight text,cost_mitichi int,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        'CREATE TABLE IF NOT EXISTS boxes (name_razdel text,name text,art text,volume int,size text,weight text,cost_mitichi int,cost_zuevo int,image_name text)')
+        'CREATE TABLE IF NOT EXISTS boxes (name_razdel text,name text,art text,volume int,size text,weight text,cost_mitichi int,cost_zuevo int,image_name text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.execute(
-        'CREATE TABLE IF NOT EXISTS azs (name_razdel text,name text,volume int,size text,art_piusi text,cost_piusi text,art_belak text,cost_belak text,art_china_premium text,cost_china_premium text,art_china text,cost_china text)')
+        'CREATE TABLE IF NOT EXISTS azs (name_razdel text,name text,volume int,size text,art_piusi text,cost_piusi text,art_belak text,cost_belak text,art_china_premium text,cost_china_premium text,art_china text,cost_china text,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
-    cur.execute(f'CREATE TABLE IF NOT EXISTS azs_parts (name_razdel text,name text,art text,cost int)')
+    cur.execute(f'CREATE TABLE IF NOT EXISTS azs_parts (name_razdel text,name text,art text,cost int,id INTEGER PRIMARY KEY AUTOINCREMENT)')
     conn.commit()
     cur.close()
     conn.close()
@@ -277,3 +280,55 @@ def rechange_photo_id(photo_name,photo_id):
     conn.commit()
     cur.close()
     conn.close()
+
+def rechange_photo_id_for_new_bot():
+    names_main = []
+
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    cur.execute('CREATE TABLE IF NOT EXISTS image_id (name str,id str)')
+    conn.commit()
+    cur.execute(f'DELETE FROM image_id')
+    cur.close()
+    cur.close()
+
+    conn = sqlite3.connect('database/TOVARI.sql')
+    cur = conn.cursor()
+    cur.execute(f'SELECT image_name FROM ground_tanks')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+
+    cur.execute(f'SELECT image_name FROM boxes')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+
+    cur.execute(f'SELECT image_name FROM for_trash')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+
+    cur.execute(f'SELECT image_name FROM for_village')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+    cur.execute(f'SELECT image_name FROM accessories')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+
+    cur.execute(f'SELECT image_name FROM underground_tanks')
+    names = cur.fetchall()
+    names_set = list(set(names))
+    for name in names_set:
+        names_main.append(name)
+    cur.close()
+    conn.close()
+
+    return names_main

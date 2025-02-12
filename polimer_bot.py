@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import  default_state,State,StatesGroup
 from aiogram.types import FSInputFile
 
+
 import time
 import sqlite3
 from collections import OrderedDict
@@ -30,7 +31,11 @@ my_dict = {"Ем_наз":['TOVARI.sql','ground_tanks'],
            "Зап_азс":['TOVARI.sql','azs_parts']
            }
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,
+                    # filename="py_log.log",
+                    # filemode='w',
+                    format='%(filename)s:%(lineno)d #%(levelname)-8s '
+                           '[%(asctime)s] - %(name)s - %(message)s')
 
 class FSMFillForm(StatesGroup):
     fill_fio = State()
@@ -47,11 +52,9 @@ class FSMFillForm(StatesGroup):
     add_photo_admin_photo = State()
 
 
-
-router = Router()
-
 bot = Bot(token=config.tg_bot.token)
 dp = Dispatcher(bot=bot)
+# dp.include_router(error.router)
 
 @dp.message(Command('start'),StateFilter(default_state))
 async def start (message: types.Message,state:FSMContext):
@@ -83,6 +86,37 @@ async def start (message: types.Message,state:FSMContext):
             time.sleep(4)
             await  message.answer('Скажите как мы можем к вам обращаться?\nВведите ваше ФИО в таком формате: "Фамилия,Имя,Отчество"')
             await state.set_state(FSMFillForm.fill_fio)
+
+@dp.message(Command('photo'))
+async def rechange_photo_for_new_bot(message: types.Message):
+    logging.info('rechange_photo_for_new_bot')
+
+    photo_list = request_admin.rechange_photo_id_for_new_bot()
+
+    conn = sqlite3.connect('database/IMAGES_IDS.sql')
+    cur = conn.cursor()
+    for photo_name in photo_list:
+        time.sleep(0.5)
+        if str(photo_name[0]) == 'None':
+            continue
+        else:
+            photo = FSInputFile(f'img/{photo_name[0]}')
+            sent_photo = await bot.send_photo(chat_id=message.chat.id, photo=photo)
+            photo_id = sent_photo.photo[-1].file_id
+
+            cur.execute('INSERT INTO image_id (name,id) VALUES (?,?)', (str(photo_name[0]), photo_id))
+            conn.commit()
+
+    photo = FSInputFile('нет_фото.jpg')
+    sent_photo = await bot.send_photo(chat_id=message.chat.id, photo=photo)
+    photo_id = sent_photo.photo[-1].file_id
+    cur.execute('INSERT INTO image_id (name,id) VALUES (?,?)', (str('нет_фото.jpg'), photo_id))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    await message.answer('готово')
 
 #ПОЛУЧЕНИЕ ДАННЫХ ОТ ПОЛЬЗОВАТЕЛЯ
 
@@ -244,12 +278,15 @@ async def main_user(message: types.Message):
         city = data[0][4]
         phone_numder = data[0][5]
 
-        await message.answer(f'Ваши данные: \n'
+        sent_message =  await message.answer(f'Ваши данные: \n'
                                          f'Имя: {name} \n'
                                          f'Фамилия: {lastname} \n'
                                          f'Отчество: {patronymik} \n'
                                          f'Город: {city} \n'
                                          f'Номер телефона: {phone_numder}',reply_markup=markup)
+
+        message_id = sent_message.message_id
+        requests_user.update_name_razdel(message_id,id)
 
     if message.text == 'Назад':
         await main_buttons_user(message)
@@ -280,7 +317,10 @@ async def main_user(message: types.Message):
 
         zakaz_id = requests_user.indert_zakaz_into_table(id,Zakaz)
 
+        requests_user.clear_coezina(id)
+
         for manager in manager_id:
+            print(manager)
             await bot.send_message(manager,f'Клиент: tg://user?id={id} \nНомер заказа: {zakaz_id} \n\n{Zakaz}')
 
         requests_user.clear_coezina(id)
@@ -300,16 +340,19 @@ async def main_user(message: types.Message):
             corzina = list(OrderedDict.fromkeys(data))
 
             for tovar in corzina:
-                cost = int(tovar[0].split('Цена:')[-1][:-2])
+                try:
+                    cost = int(tovar[0].split('Цена:')[-1][:-2])
+                except ValueError as e:
+                    cost = 0
+
                 cnt = data.count(tovar)
 
-                markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-                btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{corzina.index(tovar)}')
-                btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{corzina.index(tovar)}')
-                btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{corzina.index(tovar)}')
-                markup.inline_keyboard.append([btn1,btn_cnt,btn2])
+                calback = corzina.index(tovar)
+                markup = user_keyboards.create_buttons_corzina_start(calback)
 
-                await message.answer(f'{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',reply_markup=markup)
+                await message.answer(f'Товар 1/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',reply_markup=markup)
+
+                break
 
     if message.text == 'Поддержка 🧑‍💻':
         await message.answer('Здесь будет ссылка на поддержку')
@@ -320,6 +363,62 @@ async def main_user(message: types.Message):
     if message.text == 'Каталог 🛍':
         markup = user_keyboards.catalog_buttons()
         await message.answer('Выберите раздел:',reply_markup=markup)
+
+@dp.callback_query(or_f(F.data.startswith('back_corzina_'),(F.data.startswith('forward_corzina_'))))
+async def pagination_corzina(callback: types.callback_query):
+    user_id = callback.from_user.id
+    data = requests_user.get_corzina_data(user_id)
+    corzina = list(OrderedDict.fromkeys(data))
+
+    for tovar in corzina:
+        if callback.data == f'forward_corzina_{corzina.index(tovar)}':
+            try:
+                cost = int(tovar[0].split('Цена:')[-1][:-2])
+            except ValueError as e:
+                cost = 0
+
+            cnt = data.count(tovar)
+            if tovar == corzina[-1]:
+                markup = user_keyboards.create_buttons_corzina_next_page(True,corzina.index(tovar))
+
+                await callback.message.edit_text(text=
+                    f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                    reply_markup=markup)
+
+                break
+
+            else:
+                markup = user_keyboards.create_buttons_corzina_next_page(False,corzina.index(tovar))
+
+                await callback.message.edit_text(text=
+                                                 f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                                                 reply_markup=markup)
+
+                break
+
+        if callback.data == f'back_corzina_{corzina.index(tovar)}':
+            try:
+                cost = int(tovar[0].split('Цена:')[-1][:-2])
+            except ValueError as e:
+                cost = 0
+            cnt = data.count(tovar)
+            if tovar == corzina[0]:
+                markup = user_keyboards.create_buttons_corzina_back_page(True,corzina.index(tovar))
+
+                await callback.message.edit_text(text=
+                    f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                    reply_markup=markup)
+
+                break
+
+            else:
+                markup = user_keyboards.create_buttons_corzina_back_page(False,corzina.index(tovar))
+
+                await callback.message.edit_text(text=
+                                                 f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                                                 reply_markup=markup)
+
+                break
 
 
 @dp.callback_query(or_f((F.data.startswith('+1,')) , (F.data.startswith('-1,')) , (F.data.startswith('Удалить,'))))
@@ -347,13 +446,20 @@ async def corzina_plus_minus(callback: types.callback_query):
 
             corzina = list(OrderedDict.fromkeys(data_old))
 
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-            btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{corzina.index(tovar)}')
-            btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{corzina.index(tovar)}')
-            btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{corzina.index(tovar)}')
-            markup.inline_keyboard.append([btn1,btn_cnt,btn2])
+            index = corzina.index(tovar)
 
-            await callback.message.edit_text(f'{tovar[0]}\n\nКол-во: {cnt - 1} шт\nЦена за {cnt - 1}шт - {(cnt - 1) * cost} Руб.',reply_markup=markup)
+            if tovar == corzina[-1]:
+                markup = user_keyboards.create_buttons_corzina_next_page(True, index)
+
+            elif tovar == corzina[0]:
+                markup = user_keyboards.create_buttons_corzina_back_page(True,index)
+
+            else:
+                markup = user_keyboards.create_buttons_corzina_next_page(False, index)
+
+            await callback.message.edit_text(f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt-1} шт\nЦена за {cnt-1}шт - {cnt * cost} Руб.',reply_markup=markup)
+
+            break
 
         if callback.data == f'+1,{corzina.index(tovar)}':
             cost = int(tovar[0].split('Цена:')[-1][:-2])
@@ -366,23 +472,45 @@ async def corzina_plus_minus(callback: types.callback_query):
 
             corzina = list(OrderedDict.fromkeys(data_old))
 
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-            btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{corzina.index(tovar)}')
-            btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{corzina.index(tovar)}')
-            btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{corzina.index(tovar)}')
-            markup.inline_keyboard.append([btn1,btn_cnt,btn2])
+            index = corzina.index(tovar)
 
-            await callback.message.edit_text(f'{tovar[0]}\n\nКол-во: {cnt+1} шт\nЦена за {cnt+1}шт - {(cnt+1) * cost} Руб.',reply_markup=markup)
+            if tovar == corzina[-1]:
+                markup = user_keyboards.create_buttons_corzina_next_page(True,index)
+            elif tovar == corzina[0]:
+                markup = user_keyboards.create_buttons_corzina_back_page(True,index)
+            else:
+                markup = user_keyboards.create_buttons_corzina_next_page(False,index)
+
+            await callback.message.edit_text( f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt+1} шт\nЦена за {cnt+1}шт - {cnt * cost} Руб.',reply_markup=markup)
 
         if callback.data == f'Удалить,{corzina.index(tovar)}':
+            print(123123)
+            index = corzina.index(tovar)
+
+            if tovar == corzina[0]:
+                markup = user_keyboards.button_for_deleted_tovar(True,index)
+                await callback.message.edit_text(f'Товар {corzina.index(tovar) + 1}/{len(corzina)}\n\nТовар удален',
+                                                 reply_markup=markup)
+
+            elif tovar == corzina[-1]:
+                markup = user_keyboards.button_for_deleted_tovar(False,index)
+                await callback.message.edit_text(f'Товар {corzina.index(tovar) + 1}/{len(corzina)}\n\nТовар удален',
+                                                 reply_markup=markup)
+            else:
+                markup = user_keyboards.button_for_deleted_tovar(False, index)
+                await callback.message.edit_text(f'Товар {corzina.index(tovar) + 1}/{len(corzina)}\n\nТовар удален',
+                                                 reply_markup=markup)
+
+
             cur.execute(f'DELETE FROM corzina_{user_id} WHERE description = "{tovar[0]}"')
             conn.commit()
 
-            new_markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-            btn = types.InlineKeyboardButton(text='-',callback_data='123123')
-            new_markup.inline_keyboard.append([btn])
+            corzina.remove(tovar)
+            print(corzina)
 
-            await callback.message.edit_text(f'Товар Удален',reply_markup=new_markup)
+            if corzina == []:
+                await callback.message.edit_text(f'Ваша корзина пуста',reply_markup=user_keyboards.empty_keyboard())
+
 
     cur.close()
     conn.close()
@@ -457,6 +585,7 @@ async def buttons_razdel(callback: types.CallbackQuery):
             break
 
     if cnt == 1:
+        name_razdel = ''
         key = description
 
         table_name = my_dict[key][1]
@@ -490,7 +619,7 @@ async def buttons_razdel(callback: types.CallbackQuery):
         cnt_pages = int(len(info) / 5) + 1
         for elem in info:
             if cnt < 5:
-                btn = types.InlineKeyboardButton(text=f'{elem[1]}', callback_data=f'Товар:{elem[2]}')
+                btn = types.InlineKeyboardButton(text=f'{elem[1]}', callback_data=f'Товар:{elem[-1]}')
                 markup.inline_keyboard.append([btn])
                 cnt += 1
             if cnt == 5:
@@ -499,11 +628,11 @@ async def buttons_razdel(callback: types.CallbackQuery):
                 await callback.message.edit_text(text=f'{elem[0]}\n\nСтраница 1/{cnt_pages}', reply_markup=markup)
                 break
         else:
-            await callback.message.edit_text(text=f'{info[0][0]}:', reply_markup=markup)
-
+            await callback.message.edit_text(text=f'{info[0][0]}',reply_markup=markup)
 
     else:
-        await (callback.message.edit_text('Выберите раздел:',reply_markup=markup))
+        await callback.message.edit_text(text='Выберите раздел',reply_markup=markup)
+
 
 @dp.callback_query(or_f(F.data.startswith('forward razdel') , F.data.startswith('back razdel')))
 async def pagination_razdel(callback: types.CallbackQuery):
@@ -599,7 +728,7 @@ async def tovari(callback: types.CallbackQuery):
             cnt_pages = int(len(info)/5) + 1
             for elem in info:
                 if cnt<5:
-                    btn = types.InlineKeyboardButton(text=f'{elem[1]}',callback_data=f'Товар:{elem[2]}')
+                    btn = types.InlineKeyboardButton(text=f'{elem[1]}',callback_data=f'Товар:{elem[-1]}')
                     markup.inline_keyboard.append([btn])
                     cnt+=1
                 if cnt == 5:
@@ -627,7 +756,7 @@ async def pagination(callback: types.CallbackQuery):
             page = i-1
             for elem in info[5*page:]:
                 if cnt<5:
-                    btn = types.InlineKeyboardButton(text=f'{elem[1]}',callback_data=f'Товар:{elem[2]}')
+                    btn = types.InlineKeyboardButton(text=f'{elem[1]}',callback_data=f'Товар:{elem[-1]}')
                     markup.inline_keyboard.append([btn])
                     cnt+=1
                 if cnt == 5:
@@ -648,7 +777,7 @@ async def pagination(callback: types.CallbackQuery):
             page_end = i-1
             for elem in info[page_start*5:5*page_end]:
                 if cnt < 5:
-                    btn = types.InlineKeyboardButton(text=f'{elem[1]}', callback_data=f'Товар:{elem[2]}')
+                    btn = types.InlineKeyboardButton(text=f'{elem[1]}', callback_data=f'Товар:{elem[-1]}')
                     markup_2.inline_keyboard.append([btn])
                     cnt += 1
                 if cnt == 5 and page_start == 0:
@@ -676,7 +805,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Ем_наз' or key == 'Ем_подз':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
 
                 elem_str = str(elem)
 
@@ -689,14 +818,10 @@ async def choice_tovar(callback: types.CallbackQuery):
                 volume = elem[5]
                 cost_mitichi = elem[6]
                 cost_zuevo = elem[7]
-                print(elem[8])
 
-                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
+                photo = requests_user.get_photo_id_by_name(f'{elem[8]}')
+                print(photo)
 
-                if result == False:
-                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
-                else:
-                    photo = result
 
                 markup = user_keyboards.tanks_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
@@ -712,7 +837,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Дача':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -724,12 +849,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost_mitichi = elem[5]
                 cost_zuevo = elem[6]
 
-                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
-
-                if result == False:
-                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
-                else:
-                    photo = result
+                photo = requests_user.get_photo_id_by_name(f'{elem[8]}')
 
                 markup = user_keyboards.dacha_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
@@ -744,7 +864,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Компл':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -754,12 +874,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost_mitichi = elem[3]
                 cost_zuevo = elem[4]
 
-                result = requests_user.get_photo_id_by_name(f'{elem[5]}')
-
-                if result == False:
-                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
-                else:
-                    photo = result
+                photo = requests_user.get_photo_id_by_name(f'{elem[5]}')
 
 
                 markup = user_keyboards.kompl_skald_buttons()
@@ -773,7 +888,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Мусор':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -784,12 +899,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 weight = elem[4]
                 cost_mitichi = elem[5]
 
-                result = requests_user.get_photo_id_by_name(f'{elem[6]}')
-
-                if result == False:
-                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
-                else:
-                    photo = result
+                photo = requests_user.get_photo_id_by_name(f'{elem[6]}')
 
                 markup = user_keyboards.corzina_musor_button()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
@@ -802,7 +912,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Короб':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -815,12 +925,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost_mitichi = elem[6]
                 cost_zuevo = elem[7]
 
-                result = requests_user.get_photo_id_by_name(f'{elem[8]}')
-
-                if result == False:
-                    photo = 'AgACAgIAAxkBAAIW4WeqF_di2qDJX9f491y0mkp1amQHAAKV6jEb60dQScPdF5mWcH3aAQADAgADeQADNgQ'
-                else:
-                    photo = result
+                photo = requests_user.get_photo_id_by_name(f'{elem[8]}')
 
                 markup = user_keyboards.boxes_sklad_buttons()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
@@ -836,8 +941,7 @@ async def choice_tovar(callback: types.CallbackQuery):
 
     if key == 'Азс':
         for elem in info:
-            print(elem)
-            if callback.data == f'Товар:{elem[4]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -857,7 +961,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
 
 
-                await callback.answer(f'Название: {name} \n\n'
+                await callback.message.answer(f'Название: {name} \n\n'
                                                                 f'Обьем: {obiem} Л \n\n'
                                                                 f'Размер: {size} \n\n'
                                                                 f'Артикул PUISI: {art_PIUSU} \n'
@@ -871,7 +975,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                                                                 f'Чтобы добавить товар в корзину нажмите на кнопку с названием склада',reply_markup=markup)
     if key == 'Зап_азс':
         for elem in info:
-            if callback.data == f'Товар:{elem[2]}':
+            if callback.data == f'Товар:{elem[-1]}':
                 elem_str = str(elem)
 
                 requests_user.set_tovar(elem_str,user_id)
@@ -881,7 +985,7 @@ async def choice_tovar(callback: types.CallbackQuery):
                 cost = elem[3]
                 markup = user_keyboards.corzina_zap_azs()
                 await bot.delete_message(callback.from_user.id,callback.message.message_id)
-                await callback.answer(f'Название: {name} \n\n'
+                await callback.message.answer(f'Название: {name} \n\n'
                                                                 f'Артикул: {art} \n\n'
                                                                 f'Цена: {cost} Л \n\n',reply_markup=markup)
 
@@ -895,7 +999,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
     tovar = eval(data[0][0])
     if callback.data == 'Корзина Емкости Мыт':
         description = f'Товар: {tovar[1]}\nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nОбьем: {tovar[5]} Л \nЦена: {tovar[6]} Р'
-        if str(tovar[6]) != 'None':
+        if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id,description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
         else:
@@ -903,7 +1007,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина Емкости Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nОбьем: {tovar[5]} Л \nЦена: {tovar[7]} Р'
-        if str(tovar[7]) != 'None':
+        if str(tovar[7]) != 'None' and str(tovar[7]) != 'скоро' and str(tovar[7] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
         else:
@@ -911,7 +1015,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина дача Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nЦена: {tovar[5]} Р'
-        if str(tovar[5]) != 'None':
+        if str(tovar[5]) != 'None'and str(tovar[5]) != 'скоро' and str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
         else:
@@ -919,7 +1023,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина дача Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nЦена: {tovar[6]} Р'
-        if str(tovar[6]) != 'None':
+        if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
         else:
@@ -927,7 +1031,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина компл Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[3]} Р'
-        if str(tovar[3]) != 'None':
+        if str(tovar[3]) != 'None' and str(tovar[3]) != 'скоро' and str(tovar[3] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
         else:
@@ -935,7 +1039,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина компл Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[4]} Р'
-        if str(tovar[4]) != 'None':
+        if str(tovar[4]) != 'None' and str(tovar[4]) != 'скоро' and str(tovar[4] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
         else:
@@ -943,7 +1047,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина мусор':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nХарактеристики:{tovar[3]}\nВес: {tovar[4]} КГ\nЦена: {tovar[5]} Р'
-        if str(tovar[5]) != 'None':
+        if str(tovar[5]) != 'None' and str(tovar[5]) != 'скоро' or str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -951,7 +1055,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина короб Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nОбьем: {tovar[3]} Л\nРазмер: {tovar[4]}\nВес: {tovar[5]} КГ\nЦена: {tovar[6]} Р'
-        if str(tovar[6]) != 'None':
+        if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
         else:
@@ -959,7 +1063,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина короб Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nОбьем: {tovar[3]} Л\nРазмер: {tovar[4]}\nВес: {tovar[5]} КГ\nЦена: {tovar[7]} Р'
-        if str(tovar[7]) != 'None':
+        if str(tovar[7]) != 'None' and str(tovar[7]) != 'скоро' and str(tovar[7] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
         else:
@@ -967,7 +1071,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина АЗС PIUSI':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[4]}\nЦена: {tovar[5]} Р'
-        if str(tovar[5]) != 'None':
+        if str(tovar[5]) != 'None' and str(tovar[5]) != 'скоро' and str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -975,7 +1079,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина АЗС БелАк':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[6]}\nЦена: {tovar[7]} Р'
-        if str(tovar[7]) != 'None':
+        if str(tovar[7]) != 'None' and str(tovar[7]) != 'скоро' and str(tovar[7] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -983,7 +1087,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина АЗС Кит_прем':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[8]}\nЦена: {tovar[9]} Р'
-        if str(tovar[9]) != 'None':
+        if str(tovar[9]) != 'None' and str(tovar[9]) != 'скоро' and str(tovar[9] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -991,7 +1095,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина АЗС китай':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[10]}\nЦена: {tovar[11]} Р'
-        if str(tovar[11]) != 'None':
+        if str(tovar[11]) != 'None' and str(tovar[11]) != 'скоро' and str(tovar[11] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -999,7 +1103,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 
     if callback.data == 'Корзина зап_азс':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[3]} Р'
-        if str(tovar[3]) != 'None':
+        if str(tovar[3]) != 'None' and str(tovar[3]) != 'скоро' and str(tovar[3] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
@@ -1019,19 +1123,22 @@ async def change_data_or_history (callback: types.CallbackQuery):
                 zakaz_id = requests_user.povtor_zakaz(user_id,zakaz)
 
                 await callback.message.answer('Благодарим вас за повторное оформление заказа,в скором времени мы с вами свяжемся')
-                await callback.message.answer( f'Клиент: tg://user?id={user_id} \nНомер заказа: {zakaz_id} \n\n{zakaz[2]}')
+                for manager in manager_id:
+                    await bot.send_message(manager,f'Клиент: tg://user?id={user_id} \nНомер заказа: {zakaz_id} \n\n{zakaz[2]}')
 
 
     if callback.data == f'История {user_id}':
 
         data = requests_user.select_all_from_history(user_id)
         if data != []:
+            await bot.delete_message(callback.from_user.id,callback.message.message_id)
             for zakaz in data:
 
                 markup = user_keyboards.povtor_zakaz_buttons(data.index(zakaz))
 
                 await callback.message.answer(f'Номер заказа: {zakaz[0]}'f'\n{zakaz[2]}',reply_markup=markup)
         else:
+            await bot.delete_message(callback.from_user.id,callback.message.message_id)
             await callback.message.answer('Вы пока что не оформили ни одного заказа')
 
     if callback.data == f'Изменить {user_id}':
@@ -1044,14 +1151,22 @@ async def change_data_or_history (callback: types.CallbackQuery):
 async def change_data(callback: types.CallbackQuery,state:FSMContext):
     logging.info('change_data')
     user_id = callback.from_user.id
+    data = requests_user.get_user_info(user_id)
+    print(data)
+    name = data[0][1]
+    lastname = data[0][2]
+    patronymik = data[0][3]
+    city = data[0][4]
+    phone_numder = data[0][5]
+
     if callback.data == f'ФИО {user_id}':
-        await callback.message.answer('Введите новое ФИО через запятую в таком виде: "Фамилия,Имя,Отчество"')
+        await  callback.message.edit_text(text=f'Ваше текущее ФИО: {name},{lastname},{patronymik}\n\nВведите ФИО в таком формате через запятую: "Фамилия,Имя,Отчество"',reply_markup=user_keyboards.empty_keyboard())
         await state.set_state(FSMFillForm.change_fio)
     if callback.data == f'Город {user_id}':
-        await callback.message.answer('Введите новое название города')
+        await callback.message.edit_text(text=f'Ваш текущий город: {city}\nВведите новое название города',reply_markup=user_keyboards.empty_keyboard())
         await state.set_state(FSMFillForm.change_city)
     if callback.data == f'Номер телефона {user_id}':
-        await callback.message.answer('Введите новый номер телефона')
+        await callback.message.edit_text(text=f'Ваш текущий номер телефона: {phone_numder}\nВведите новый номер телефона',reply_markup=user_keyboards.empty_keyboard())
         await state.set_state(FSMFillForm.change_phone_number)
 
 @dp.message(StateFilter(FSMFillForm.change_fio))
@@ -1060,14 +1175,33 @@ async def get_new_fio(message: types.Message,state:FSMContext):
     user_id = message.from_user.id
     new_fio_old = str(message.text)
     try:
+        message_id_in_list = (requests_user.select_info_from_user_data(user_id))
+        message_id = int(message_id_in_list[0][0])
+
         new_fio_new = new_fio_old.split(',')
         name = new_fio_new[0]
         surname = new_fio_new[1]
         patronymik = new_fio_new[2]
 
-        requests_user.update_user_fio(name,surname,patronymik,user_id)
+        requests_user.update_user_fio(name, surname, patronymik, user_id)
         await state.clear()
+
+        data = requests_user.get_user_info(user_id)
+        print(data)
+        city = data[0][4]
+        phone_numder = data[0][5]
+
+        new_data = (f'Ваши данные:\n'
+                    f'Имя: {name}\n'
+                    f'Фамилия: {surname}\n'
+                    f'Отчество: {patronymik}\n'
+                    f'Город: {city}\n'
+                    f'Номер телефона: {phone_numder}')
+
+        await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+        await bot.delete_message(message.from_user.id,message.message_id-1)
         await message.answer('Данные сохранены!')
+
     except Exception as e:
         await message.answer('Неправильный формат ввода данных,введите данные еще раз')
         await state.set_state(FSMFillForm.change_fio)
@@ -1080,8 +1214,30 @@ async def get_new_city(message: types.Message,state:FSMContext):
     new_city_new = new_city_old
 
     requests_user.update_user_city(new_city_new,user_id)
+
     await state.clear()
+
+    message_id_in_list = (requests_user.select_info_from_user_data(user_id))
+    message_id = int(message_id_in_list[0][0])
+
+    data = requests_user.get_user_info(user_id)
+    name = data[0][1]
+    lastname = data[0][2]
+    patronymik = data[0][3]
+    phone_numder = data[0][5]
+
+    new_data = (f'Ваши данные:\n'
+                f'Имя: {name}\n'
+                f'Фамилия: {lastname}\n'
+                f'Отчество: {patronymik}\n'
+                f'Город: {new_city_new}\n'
+                f'Номер телефона: {phone_numder}')
+
+    await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+
+    await bot.delete_message(message.from_user.id, message.message_id - 1)
     await message.answer('Данные сохранены!')
+
 
 @dp.message(StateFilter(FSMFillForm.change_phone_number))
 async def get_new_phone_number(message: types.Message,state:FSMContext):
@@ -1091,8 +1247,30 @@ async def get_new_phone_number(message: types.Message,state:FSMContext):
 
     if (len(new_phone_number) == 11) and (new_phone_number[0:2] == '89' or (new_phone_number[0:2] == '79')):
         requests_user.update_phone_number(new_phone_number,user_id)
-        await message.answer('Данные сохранены!')
+
         await state.clear()
+
+        message_id_in_list = (requests_user.select_info_from_user_data(user_id))
+        message_id = int(message_id_in_list[0][0])
+
+        data = requests_user.get_user_info(user_id)
+        name = data[0][1]
+        lastname = data[0][2]
+        patronymik = data[0][3]
+        city = data[0][4]
+
+        new_data = (f'Ваши данные:\n'
+                    f'Имя: {name}\n'
+                    f'Фамилия: {lastname}\n'
+                    f'Отчество: {patronymik}\n'
+                    f'Город: {city}\n'
+                    f'Номер телефона: {new_phone_number}')
+
+        await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+
+        await bot.delete_message(message.from_user.id, message.message_id - 1)
+        await message.answer('Данные сохранены!')
+
 
     else:
         await message.answer('Неправильный формат номера телефона,попробуйте ввести еще раз')

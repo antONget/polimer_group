@@ -122,3 +122,77 @@ def rechange_user_data_buttons(user_id):
     markup.inline_keyboard.append([btn3])
     return markup
 
+def empty_keyboard():
+    new_markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+    return new_markup
+
+def create_buttons_corzina_start(callback):
+    markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+    btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{callback}')
+    btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{callback}')
+    btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{callback}')
+    btn_forward = types.InlineKeyboardButton(text='>>>', callback_data='forward_corzina_1')
+    markup.inline_keyboard.append([btn1, btn_cnt, btn2])
+    markup.inline_keyboard.append([btn_forward])
+    return markup
+
+def create_buttons_corzina_next_page(bool,index):
+    if bool == True:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{index}')
+        btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{index}')
+        btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{index}')
+        btn_back = types.InlineKeyboardButton(text='<<<', callback_data=f'back_corzina_{index - 1}')
+        markup.inline_keyboard.append([btn1, btn_cnt, btn2])
+        markup.inline_keyboard.append([btn_back])
+        return markup
+    else:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{index}')
+        btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар',
+                                             callback_data=f'Удалить,{index}')
+        btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{index}')
+        btn_back = types.InlineKeyboardButton(text='<<<', callback_data=f'back_corzina_{index- 1}')
+        btn_forward = types.InlineKeyboardButton(text='>>>',
+                                                 callback_data=f'forward_corzina_{index + 1}')
+        markup.inline_keyboard.append([btn1, btn_cnt, btn2])
+        markup.inline_keyboard.append([btn_back, btn_forward])
+        return markup
+
+
+def create_buttons_corzina_back_page(bool,index):
+    if bool == True:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{index}')
+        btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар', callback_data=f'Удалить,{index}')
+        btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{index}')
+        btn_back = types.InlineKeyboardButton(text='>>>', callback_data=f'forward_corzina_{index + 1}')
+        markup.inline_keyboard.append([btn1, btn_cnt, btn2])
+        markup.inline_keyboard.append([btn_back])
+        return markup
+    else:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn1 = types.InlineKeyboardButton(text='-1', callback_data=f'-1,{index}')
+        btn_cnt = types.InlineKeyboardButton(text=f'Удалить товар',
+                                             callback_data=f'Удалить,{index}')
+        btn2 = types.InlineKeyboardButton(text='+1', callback_data=f'+1,{index}')
+        btn_back = types.InlineKeyboardButton(text='<<<',
+                                              callback_data=f'back_corzina_{index-1}')
+        btn_forward = types.InlineKeyboardButton(text='>>>',
+                                                 callback_data=f'forward_corzina_{index+1}')
+        markup.inline_keyboard.append([btn1, btn_cnt, btn2])
+        markup.inline_keyboard.append([btn_back, btn_forward])
+        return markup
+
+def button_for_deleted_tovar(bool,index):
+    if bool == True:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn_back = types.InlineKeyboardButton(text='Далее', callback_data=f'back_corzina_{index + 1}')
+        markup.inline_keyboard.append([btn_back])
+        return markup
+
+    else:
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[])
+        btn_back = types.InlineKeyboardButton(text='Далее', callback_data=f'back_corzina_{index - 1}')
+        markup.inline_keyboard.append([btn_back])
+        return markup

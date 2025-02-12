@@ -245,9 +245,10 @@ def get_photo_id_by_name(photo_name):
     cur = conn.cursor()
     cur.execute('SELECT * FROM image_id WHERE name = ?',(photo_name,))
     data = cur.fetchall()
-    cur.close()
-    conn.close()
     if data == []:
-        return False
+        cur.execute(f'SELECT id FROM image_id WHERE name = ?',('нет_фото.jpg',))
+        data = cur.fetchall()
+        return data[0][0]
+
     else:
         return data[0][1]

@@ -1,0 +1,6 @@
+dispatcher.py:527 #INFO     [2025-02-10 23:02:44,264] - aiogram.dispatcher - Start polling
+dispatcher.py:341 #INFO     [2025-02-10 23:02:44,874] - aiogram.dispatcher - Run polling for bot @Polimer_Group_bot id=7661034756 - 'Polimer Group'
+polimer_bot.py:237 #INFO     [2025-02-10 23:02:44,965] - root - main_user
+dispatcher.py:172 #INFO     [2025-02-10 23:02:45,292] - aiogram.event - Update id=197132704 is handled. Duration 327 ms by bot id=7661034756
+dispatcher.py:554 #INFO     [2025-02-10 23:02:49,055] - aiogram.dispatcher - Polling stopped
+dispatcher.py:359 #INFO     [2025-02-10 23:02:49,302] - aiogram.dispatcher - Polling stopped for bot @Polimer_Group_bot id=7661034756 - 'Polimer Group'

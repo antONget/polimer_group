@@ -7,6 +7,7 @@ class TgBot:
     token: str
     admin_ids: str
     manager_ids: str
+    support_ids: str
 
 
 @dataclass
@@ -20,4 +21,4 @@ def load_config(path: str = None) -> Config:
     return Config(tg_bot=TgBot(token=env('BOT_TOKEN'),
                                admin_ids=env('ADMIN_IDS'),
                                manager_ids=env('MANAGER_IDS'),
-                               ))
+                               support_ids=env('SUPPORT_IDS')))
