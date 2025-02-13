@@ -266,6 +266,7 @@ async def main_buttons_user (message: types.Message):
 async def main_user(message: types.Message):
     logging.info('main_user')
     id = message.from_user.id
+    username = message.from_user.username
     if message.text == 'Личный кабинет 👤':
 
         markup = user_keyboards.kabinet_buttons(id)
@@ -321,7 +322,7 @@ async def main_user(message: types.Message):
 
         for manager in manager_id:
             print(manager)
-            await bot.send_message(manager,f'Клиент: tg://user?id={id} \nНомер заказа: {zakaz_id} \n\n{Zakaz}')
+            await bot.send_message(manager,f'<a href="tg://user?id={id}">{username}</a> \nНомер заказа: {zakaz_id} \n\n{Zakaz}',parse_mode='HTML')
 
         requests_user.clear_coezina(id)
 
@@ -411,6 +412,15 @@ async def pagination_corzina(callback: types.callback_query):
 
                 break
 
+            if tovar == corzina[-1]:
+                markup = user_keyboards.create_buttons_corzina_next_page(True,corzina.index(tovar))
+
+                await callback.message.edit_text(text=
+                                                 f'Товар {corzina.index(tovar) + 1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                                                 reply_markup=markup)
+
+                break
+
             else:
                 markup = user_keyboards.create_buttons_corzina_back_page(False,corzina.index(tovar))
 
@@ -437,10 +447,8 @@ async def corzina_plus_minus(callback: types.callback_query):
         if callback.data == f'-1,{corzina.index(tovar)}':
 
             cost = int(tovar[0].split('Цена:')[-1][:-2])
-            cnt = data_old.count(tovar)
+            cnt = data_old.count(tovar) - 1
 
-            cur.execute(f'DELETE FROM corzina_{user_id} WHERE rowid = (SELECT MAX(rowid) FROM corzina_{user_id} WHERE description = "{tovar[0]}") ')
-            conn.commit()
             cur.execute(f'SELECT * FROM corzina_{user_id}')
             data_old = cur.fetchall()
 
@@ -448,22 +456,55 @@ async def corzina_plus_minus(callback: types.callback_query):
 
             index = corzina.index(tovar)
 
+            cur.execute(
+                f'DELETE FROM corzina_{user_id} WHERE rowid = (SELECT MAX(rowid) FROM corzina_{user_id} WHERE description = "{tovar[0]}") ')
+            conn.commit()
+
             if tovar == corzina[-1]:
                 markup = user_keyboards.create_buttons_corzina_next_page(True, index)
 
             elif tovar == corzina[0]:
-                markup = user_keyboards.create_buttons_corzina_back_page(True,index)
+                markup = user_keyboards.create_buttons_corzina_back_page(True, index)
 
             else:
                 markup = user_keyboards.create_buttons_corzina_next_page(False, index)
 
-            await callback.message.edit_text(f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt-1} шт\nЦена за {cnt-1}шт - {cnt * cost} Руб.',reply_markup=markup)
+            await callback.message.edit_text(
+                f'Товар {corzina.index(tovar) + 1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',
+                reply_markup=markup)
+
+            data_old.count(tovar)
+
+            data_old.remove(tovar)
+
+            print(data_old.count(tovar))
+
+            if data_old.count(tovar) == 0:
+
+                if tovar == corzina[0]:
+                    markup = user_keyboards.button_for_deleted_tovar(True, index-1)
+
+
+                elif tovar == corzina[-1]:
+                    markup = user_keyboards.button_for_deleted_tovar(False, index)
+
+                else:
+                    markup = user_keyboards.button_for_deleted_tovar(False, index)
+
+
+                corzina.remove(tovar)
+                await callback.message.edit_text(f'Товар удален',reply_markup=markup)
+
+
+            if corzina == []:
+                await callback.message.edit_text(f'Ваша корзина пуста', reply_markup=user_keyboards.empty_keyboard())
 
             break
 
+
         if callback.data == f'+1,{corzina.index(tovar)}':
             cost = int(tovar[0].split('Цена:')[-1][:-2])
-            cnt = data_old.count(tovar)
+            cnt = data_old.count(tovar) +1
 
             cur.execute(f'INSERT INTO corzina_{user_id} (description) VALUES ("{tovar[0]}")')
             conn.commit()
@@ -481,10 +522,9 @@ async def corzina_plus_minus(callback: types.callback_query):
             else:
                 markup = user_keyboards.create_buttons_corzina_next_page(False,index)
 
-            await callback.message.edit_text( f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt+1} шт\nЦена за {cnt+1}шт - {cnt * cost} Руб.',reply_markup=markup)
+            await callback.message.edit_text( f'Товар {corzina.index(tovar)+1}/{len(corzina)}\n\n{tovar[0]}\n\nКол-во: {cnt} шт\nЦена за {cnt}шт - {cnt * cost} Руб.',reply_markup=markup)
 
         if callback.data == f'Удалить,{corzina.index(tovar)}':
-            print(123123)
             index = corzina.index(tovar)
 
             if tovar == corzina[0]:
@@ -1002,62 +1042,70 @@ async def add_to_corzina(callback: types.CallbackQuery):
         if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id,description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина Емкости Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nОбьем: {tovar[5]} Л \nЦена: {tovar[7]} Р'
         if str(tovar[7]) != 'None' and str(tovar[7]) != 'скоро' and str(tovar[7] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина дача Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nЦена: {tovar[5]} Р'
         if str(tovar[5]) != 'None'and str(tovar[5]) != 'скоро' and str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина дача Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nРазмер: {tovar[3]} \nВес: {tovar[4]} КГ\nЦена: {tovar[6]} Р'
         if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина компл Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[3]} Р'
         if str(tovar[3]) != 'None' and str(tovar[3]) != 'скоро' and str(tovar[3] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина компл Орех':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[4]} Р'
         if str(tovar[4]) != 'None' and str(tovar[4]) != 'скоро' and str(tovar[4] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина мусор':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nХарактеристики:{tovar[3]}\nВес: {tovar[4]} КГ\nЦена: {tovar[5]} Р'
         if str(tovar[5]) != 'None' and str(tovar[5]) != 'скоро' or str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
+            await callback.answer()
         else:
-            await callback.message.answer('Выбранного вами товара нет на складе')
+            await callback.answer('Выбранного вами товара нет на складе')
 
     if callback.data == 'Корзина короб Мыт':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nОбьем: {tovar[3]} Л\nРазмер: {tovar[4]}\nВес: {tovar[5]} КГ\nЦена: {tovar[6]} Р'
         if str(tovar[6]) != 'None' and str(tovar[6]) != 'скоро' and str(tovar[6] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Мытищи')
+            await callback.answer()
         else:
             await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
@@ -1067,13 +1115,14 @@ async def add_to_corzina(callback: types.CallbackQuery):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину со склада Орехово-Зуево')
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина АЗС PIUSI':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[4]}\nЦена: {tovar[5]} Р'
         if str(tovar[5]) != 'None' and str(tovar[5]) != 'скоро' and str(tovar[5] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
+            await callback.answer()
         else:
             await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
@@ -1083,31 +1132,34 @@ async def add_to_corzina(callback: types.CallbackQuery):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина АЗС Кит_прем':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[8]}\nЦена: {tovar[9]} Р'
         if str(tovar[9]) != 'None' and str(tovar[9]) != 'скоро' and str(tovar[9] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина АЗС китай':
         description = f'Товар: {tovar[1]} \nОбьем: {tovar[2]} Л\nРазмер: {tovar[3]}\nАртикул: {tovar[10]}\nЦена: {tovar[11]} Р'
         if str(tovar[11]) != 'None' and str(tovar[11]) != 'скоро' and str(tovar[11] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
+            await callback.answer()
         else:
-            await callback.message.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
+            await callback.answer('Товара нет на выбранном вами складе,пожалуйста выберите другой склад')
 
     if callback.data == 'Корзина зап_азс':
         description = f'Товар: {tovar[1]} \nАртикул: {tovar[2]}\nЦена: {tovar[3]} Р'
         if str(tovar[3]) != 'None' and str(tovar[3]) != 'скоро' and str(tovar[3] != 'под заказ'):
             requests_user.insert_tovar_into_corzina(user_id, description)
             await callback.message.answer(f'Товар добавлен в корзину')
+            await callback.answer()
         else:
-            await callback.message.answer('Выбранного вами товара нет на складе')
+            await callback.answer('Выбранного вами товара нет на складе')
 
 
 
@@ -1115,6 +1167,7 @@ async def add_to_corzina(callback: types.CallbackQuery):
 async def change_data_or_history (callback: types.CallbackQuery):
     logging.info('change_data_or_history')
     user_id = callback.from_user.id
+    username = callback.from_user.username
     if 'Повторить заказ' in callback.data:
         data = requests_user.select_all_from_history(user_id)
 
@@ -1124,7 +1177,7 @@ async def change_data_or_history (callback: types.CallbackQuery):
 
                 await callback.message.answer('Благодарим вас за повторное оформление заказа,в скором времени мы с вами свяжемся')
                 for manager in manager_id:
-                    await bot.send_message(manager,f'Клиент: tg://user?id={user_id} \nНомер заказа: {zakaz_id} \n\n{zakaz[2]}')
+                    await bot.send_message(manager,f'<a href="tg://user?id={user_id}">{username}</a>"\nНомер заказа: {zakaz_id} \n\n{zakaz[2]}',parse_mode='HTML')
 
 
     if callback.data == f'История {user_id}':
@@ -1160,13 +1213,16 @@ async def change_data(callback: types.CallbackQuery,state:FSMContext):
     phone_numder = data[0][5]
 
     if callback.data == f'ФИО {user_id}':
-        await  callback.message.edit_text(text=f'Ваше текущее ФИО: {name},{lastname},{patronymik}\n\nВведите ФИО в таком формате через запятую: "Фамилия,Имя,Отчество"',reply_markup=user_keyboards.empty_keyboard())
+        await callback.message.edit_text(text=f'Ваше текущее ФИО: {name},{lastname},{patronymik}\n\nВведите ФИО в таком формате через запятую: "Фамилия,Имя,Отчество"',reply_markup=user_keyboards.empty_keyboard())
+        await callback.answer()
         await state.set_state(FSMFillForm.change_fio)
     if callback.data == f'Город {user_id}':
         await callback.message.edit_text(text=f'Ваш текущий город: {city}\nВведите новое название города',reply_markup=user_keyboards.empty_keyboard())
+        await callback.answer()
         await state.set_state(FSMFillForm.change_city)
     if callback.data == f'Номер телефона {user_id}':
         await callback.message.edit_text(text=f'Ваш текущий номер телефона: {phone_numder}\nВведите новый номер телефона',reply_markup=user_keyboards.empty_keyboard())
+        await callback.answer()
         await state.set_state(FSMFillForm.change_phone_number)
 
 @dp.message(StateFilter(FSMFillForm.change_fio))
@@ -1179,8 +1235,8 @@ async def get_new_fio(message: types.Message,state:FSMContext):
         message_id = int(message_id_in_list[0][0])
 
         new_fio_new = new_fio_old.split(',')
-        name = new_fio_new[0]
-        surname = new_fio_new[1]
+        name = new_fio_new[1]
+        surname = new_fio_new[0]
         patronymik = new_fio_new[2]
 
         requests_user.update_user_fio(name, surname, patronymik, user_id)
@@ -1198,11 +1254,12 @@ async def get_new_fio(message: types.Message,state:FSMContext):
                     f'Город: {city}\n'
                     f'Номер телефона: {phone_numder}')
 
-        await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+        await bot.edit_message_text(chat_id=message.chat.id,message_id=message_id,text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
         await bot.delete_message(message.from_user.id,message.message_id-1)
         await message.answer('Данные сохранены!')
 
     except Exception as e:
+        print(e)
         await message.answer('Неправильный формат ввода данных,введите данные еще раз')
         await state.set_state(FSMFillForm.change_fio)
 
@@ -1233,7 +1290,7 @@ async def get_new_city(message: types.Message,state:FSMContext):
                 f'Город: {new_city_new}\n'
                 f'Номер телефона: {phone_numder}')
 
-    await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+    await bot.edit_message_text(chat_id=message.chat.id,message_id=message_id,text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
 
     await bot.delete_message(message.from_user.id, message.message_id - 1)
     await message.answer('Данные сохранены!')
@@ -1266,7 +1323,7 @@ async def get_new_phone_number(message: types.Message,state:FSMContext):
                     f'Город: {city}\n'
                     f'Номер телефона: {new_phone_number}')
 
-        await message.edit_text(text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
+        await bot.edit_message_text(chat_id=message.chat.id,message_id=message_id,text=new_data,reply_markup=user_keyboards.kabinet_buttons(user_id))
 
         await bot.delete_message(message.from_user.id, message.message_id - 1)
         await message.answer('Данные сохранены!')
